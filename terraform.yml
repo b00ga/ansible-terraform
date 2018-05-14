@@ -1,0 +1,41 @@
+---
+- hosts: all
+
+  tasks:
+  - name: Check if terraform is installed
+    command: command -v terraform
+    changed_when: false
+    failed_when: false
+    register: tfinstalled
+
+  - name: Check the installed version of terraform
+    command: terraform --version
+    changed_when: false
+    when: tfinstalled.rc == 0
+    register: tfinstalledver
+
+  - name: Fetch the latest version information
+    set_fact:
+      tflatest: "{{ lookup('url', 'https://checkpoint-api.hashicorp.com/v1/check/terraform') }}"
+
+  - name: Install latest Terraform
+    block:
+      - name: Create temporary download directory
+        tempfile:
+          state: directory
+        register: dltmp
+      - name: Download the latest version of Terraform
+        get_url:
+          url: '{{ tflatest.current_download_url }}terraform_{{ tflatest.current_version }}_linux_amd64.zip'
+          dest: '{{ dltmp.path }}'
+      - name: Extract terraform binary
+        become: true
+        unarchive:
+          src: '{{ dltmp.path }}/terraform_{{ tflatest.current_version }}_linux_amd64.zip'
+          dest: '/usr/local/bin'
+          remote_src: yes
+      - name: Cleanp downloads
+        file:
+          path: '{{ dltmp.path }}'
+          state: absent
+    when: ( tfinstalled.rc != 0 ) or ( tfinstalledver.stdout.split()[1] | regex_replace("v") != tflatest.current_version )
